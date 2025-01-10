@@ -8,24 +8,84 @@ on:
 
 jobs:
   trivy-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Create Trivy Template
+        run: |
+          cat << 'EOF' > trivy-template.tpl
+          {{- if . }}
+          {{- range . }}
+          ### 🔧 Target: `{{ escapeXML .Target }}`
+
+          {{- if (eq (len .Vulnerabilities) 0) }}
+          ✅ **No Vulnerabilities found**
+          {{- else }}
+          ⚠️ **{{ len .Vulnerabilities }} Vulnerabilities found:**
+
+          | 📚 Package | 🔒 ID | 📊 Severity | ⚖️ Installed Version | ✔️ Fixed Version | 📜 License |
+          |------------|-------|------------|----------------------|------------------|------------|
+          {{- range .Vulnerabilities }}
+          | {{ escapeXML .PkgName }} | [{{ escapeXML .VulnerabilityID }}](https://nvd.nist.gov/vuln/detail/{{ escapeXML .VulnerabilityID }}) | {{ escapeXML .Severity }} | {{ escapeXML .InstalledVersion }} | {{ escapeXML .FixedVersion }} | {{ escapeXML .License }} |
+          {{- end }}
+          {{- end }}
+
+          {{- if (eq (len .Misconfigurations) 0) }}
+          ✅ **No Misconfigurations found**
+          {{- else }}
+          ⚠️ **{{ len .Misconfigurations }} Misconfigurations found:**
+
+          | 🔧 Type | 🔒 ID | ✅ Check | 📊 Severity | 🔗 Message |
+          |---------|-------|----------|-------------|------------|
+          {{- range .Misconfigurations }}
+          | {{ escapeXML .Type }} | {{ escapeXML .ID }} | {{ escapeXML .Title }} | {{ escapeXML .Severity }} | {{ escapeXML .Message }} |
+          {{- end }}
+          {{- end }}
+
+          {{- if (eq (len .Secrets) 0) }}
+          ✅ **No Secrets found**
+          {{- else }}
+          ⚠️ **{{ len .Secrets }} Secrets found:**
+
+          | 🔧 Rule ID | 🔒 Title | 🔍 Match |
+          |-----------|----------|----------|
+          {{- range .Secrets }}
+          | {{ escapeXML .RuleID }} | {{ escapeXML .Title }} | {{ escapeXML .Match }} |
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- else }}
+          ℹ️ **Trivy Returned Empty Report**
+          {{- end }}
+          EOF
+
       - name: Run Trivy scan
-        id: trivy-table
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.29.0
         with:
           scan-type: 'fs'
-          format: 'table'
-          output: 'trivy-table.txt'
-          vuln-type: 'library'
+          format: template
+          vuln-type: "os,library"
+          template: "@trivy-template.tpl"
+          output: trivy-report.md
+          scanners: "vuln,secret,misconfig,license"
+          hide-progress: true
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          exit-code: '0'
+          cache-dir: ~/.cache/trivy
+          exit-code: 0
           ignore-unfixed: false
 
-      - name: Add Table Report to Step Summary
+      - name: Validate Trivy Report
         run: |
-          echo "## Trivy Vulnerability Report" >> $GITHUB_STEP_SUMMARY
-          cat trivy-table.txt >> $GITHUB_STEP_SUMMARY
+          if [ ! -s trivy-report.md ]; then
+            echo "No vulnerabilities or issues detected. Trivy report is empty." > trivy-report.md
+          fi
+
+      - name: Add Report to Step Summary
+        run: |
+          echo "# Trivy Scan Summary" > $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Click to view the report</summary>" >> $GITHUB_STEP_SUMMARY
+          cat trivy-report.md >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
