@@ -1,0 +1,31 @@
+name: Trivy Security Scan
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy scan
+        id: trivy-table
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'table'
+          output: 'trivy-table.txt'
+          vuln-type: 'library'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          exit-code: '0'
+          ignore-unfixed: false
+
+      - name: Add Table Report to Step Summary
+        run: |
+          echo "## Trivy Vulnerability Report" >> $GITHUB_STEP_SUMMARY
+          cat trivy-table.txt >> $GITHUB_STEP_SUMMARY
